@@ -830,9 +830,9 @@ Where si.StoreType is null AND si.APDate=@CurrentAPDate
 Delete from Cogs_InventoryItemColorSum where APDate=@CurrentAPDate
 ;
 
-INSERT into Cogs_InventoryItemColorSum(CreateTime,UpdateTime, APDate, StoreType, ItemColor, UnitCost)
+INSERT into Cogs_InventoryItemColorSum(CreateTime,UpdateTime, APDate, StoreType, Brand, ItemColor, UnitCost)
 
-SELECT getdate(),getdate(),@CurrentAPDate as APDate, psa.StoreType, psa.ItemColor
+SELECT getdate(),getdate(),@CurrentAPDate as APDate, psa.StoreType, max(psa.Brand), psa.ItemColor
 , case 
 when (sum(ISNULL(psb.Qty,0)) + sum(ISNULL(psi.Qty,0))) = 0 then 0 
 else (sum(ISNULL(psb.AmountLC,0)) + sum(ISNULL(psi.AmountLC,0)))/(sum(ISNULL(psb.Qty,0))+sum(ISNULL(psi.Qty,0))) 
@@ -840,10 +840,10 @@ end as UnitCost
 
 FROM 
 (
-SELECT StoreType,ItemColor
+SELECT StoreType, max(Brand) as Brand, ItemColor
 FROM Cogs_PurchaseSale
 WHERE APDate=@CurrentAPDate
-GROUP BY StoreType,ItemColor
+GROUP BY StoreType, ItemColor
 ) as psa
 
 LEFT JOIN
@@ -870,7 +870,6 @@ GROUP BY psa.StoreType, psa.ItemColor
 -- change 12/3 tao
 Update iis 
 SET 
-Brand = i.Brand,
 FNSeason = i.FNSeason,
 RetailPrice = i.RetailPrice
 FROM Cogs_InventoryItemColorSum as iis
@@ -937,6 +936,7 @@ group by ps.StoreCode,ps.ItemColor
 -- 期末汇总 Cogs_InventoryItemColorSum 算出所有的Amount
 Update iis 
 SET 
+Brand = psl.Brand,
 Qty = psl.Qty,
 Amount = psl.Amount,
 ProductCostAmt = psl.ProductCostAmt,
@@ -980,14 +980,14 @@ GROUP BY ps.StoreCode, ps.ItemColor
 ;
 INSERT INTO Cogs_MarkupSum(CreateTime, UpdateTime, APDate, Type, StoreCode, ItemColor, MarkupQty, MarkupAmount)
 SELECT
-getdate(),getdate(),@CurrentAPDate, 'Markup', ps.StoreCode, ps.ItemColor, sum(ps.Qty), -sum(ps.Qty)*sum(ps.UnitCost) * @MarkupRate
+getdate(),getdate(),@CurrentAPDate, 'StockMovement', ps.StoreCode, ps.ItemColor, sum(ps.Qty), sum(ps.Qty)*sum(ps.UnitCost) * @MarkupRate
 FROM 
 Cogs_PurchaseSale as ps
 LEFT JOIN Cogs_Warehouse as w ON w.Code=ps.StoreCode
 WHERE ps.change='Decrease'
 AND ps.APDate=@CurrentAPDate
 AND w.MarkupFlg = 1 
-GROUP BY ps.StoreCode, ps.ItemColor HAVING sum(ps.AmountLC) > 0
+GROUP BY ps.StoreCode, ps.ItemColor HAVING sum(ps.Qty) > 0
 ;
 
 
