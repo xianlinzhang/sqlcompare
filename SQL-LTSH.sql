@@ -96,7 +96,7 @@ WHERE APDate=@CurrentAPDate
 
 
 ################################################   0. 会计期间数据初始化     ################################################
--- change tao 12/2
+
 DECLARE @CurrentAPDate Date;
 set @CurrentAPDate = '2019-11-1';
 DECLARE @LocalCurrency nvarchar(50);
@@ -172,7 +172,7 @@ DECLARE @LocalCurrency nvarchar(50);
 DECLARE @MonthStockinQty integer;
 DECLARE @MonthStockinAmt integer;
 
-set @CurrentAPDate = '2019-11-1';
+set @CurrentAPDate = '2019-12-1';
 select @LocalCurrency = [value] From Cogs_SearchOption Where [key]='LocalCurrency';
 
 
@@ -300,12 +300,11 @@ WHERE frc.LotNo is not null AND frc.APDate=@CurrentAPDate
 -- 生成当月其他费用汇总
 select @OtherCostAMT = sum(Amount) From Cogs_OtherFeeInvoice Where APDate=@CurrentAPDate;
 select @MonthStockinQty = sum(Qty) From Cogs_StockIn Where APDate=@CurrentAPDate;
-select @MonthStockinAmt = sum(Qty*UnitPrice) From Cogs_StockIn Where APDate=@CurrentAPDate; --change tao 12/3
+select @MonthStockinAmt = sum(Qty*UnitPrice) From Cogs_StockIn Where APDate=@CurrentAPDate;
 
 -- 清空进销存入库单
 DELETE FROM Cogs_PurchaseSale where APDate=@CurrentAPDate and Type='Stockin';
 
--- change tao 12/3
 -- 入库单 转进销存
 INSERT INTO Cogs_PurchaseSale (
 CreateTime,UpdateTime,APDate,Type,Change,[Date],StoreCode,
@@ -318,6 +317,7 @@ sm.LotNo, sm.ASNInvoiceNo, max(lt.TtlTariffAmt)/max(lt.TtlAmt)*sum(sm.Qty*sm.Uni
 case 
 when @LocalCurrency='HKD' then @OtherCostAMT/@MonthStockinAmt*sum(sm.Qty*sm.UnitPrice)
 when @LocalCurrency='CNY' then @OtherCostAMT/@MonthStockinQty*sum(sm.Qty)
+else @OtherCostAMT/@MonthStockinQty*sum(sm.Qty)
 end
 FROM Cogs_StockIn as sm
 LEFT JOIN Cogs_ExchangeRate as er ON er.FromCurrency = sm.Currency and er.ToCurrency=@LocalCurrency AND er.APDate=@CurrentAPDate
@@ -867,12 +867,20 @@ ON psi.StoreType=psa.StoreType and psi.ItemColor=psa.ItemColor
 GROUP BY psa.StoreType, psa.ItemColor
 ;
 
--- change 12/3 tao
+-- ADD FNSeason and RetailPrice
 Update iis 
 SET 
 FNSeason = i.FNSeason,
 RetailPrice = i.RetailPrice
 FROM Cogs_InventoryItemColorSum as iis
+LEFT JOIN Cogs_Item as i ON i.StyleColorCode=iis.ItemColor
+where iis.APDate=@CurrentAPDate
+;
+Update iis 
+SET 
+FNSeason = i.FNSeason,
+RetailPrice = i.RetailPrice
+FROM Cogs_PurchaseSale as iis
 LEFT JOIN Cogs_Item as i ON i.StyleColorCode=iis.ItemColor
 where iis.APDate=@CurrentAPDate
 ;
@@ -926,7 +934,7 @@ WHERE ps.APDate=@CurrentAPDate AND ps.change='Decrease' AND ps.Type != 'Inventor
 Delete from Cogs_InventoryItemColor where APDate=@CurrentAPDate;
 
 insert into Cogs_InventoryItemColor(CreateTime,UpdateTime, APDate, StoreCode, ItemColor, Brand, FNSeason, Qty, Amount, UnitCost, RetailPrice, ProductCostAmt, InwardCostAmt, StoreType,SalesNetAmt,SalesRetailAmt)
-select getdate(),getdate(),@CurrentAPDate as APDate, ps.StoreCode, ps.ItemColor, max(i.Brand), max(i.FNSeason), sum(ps.Qty),sum(ps.Qty)*max(ps.UnitCost), max(ps.UnitCost), max(i.RetailPrice), sum(ps.ProductCostAmt),sum(ps.InwardCostAmt), max(ps.StoreType),sum(ps.SalesNetAmt),sum(ps.SalesRetailAmt)
+select getdate(),getdate(),@CurrentAPDate as APDate, ps.StoreCode, ps.ItemColor, max(i.Brand), max(i.FNSeason), sum(ps.Qty),sum(ps.Qty*ps.UnitCost), max(ps.UnitCost), max(i.RetailPrice), sum(ps.ProductCostAmt),sum(ps.InwardCostAmt), max(ps.StoreType),sum(ps.SalesNetAmt),sum(ps.SalesRetailAmt)
 from Cogs_PurchaseSale as ps
 left JOIN Cogs_Item as i on i.StyleColorCode=ps.ItemColor
 where ps.APDate = @CurrentAPDate
@@ -944,7 +952,7 @@ InwardCostAmt = psl.InwardCostAmt,
 SalesNetAmt = psl.SalesNetAmt,
 SalesRetailAmt = psl.SalesRetailAmt
 FROM Cogs_InventoryItemColorSum as iis
-LEFT JOIN ( SELECT ps.StoreType as StoreType, ps.ItemColor as ItemColor, sum(isNull(ps.Qty,0)) as Qty, sum(isNull(ps.AmountLC,0)) as Amount, sum(isNull(ps.ProductCostAmt,0)) as ProductCostAmt, sum(isNull(ps.InwardCostAmt,0)) as InwardCostAmt, sum(isNull(ps.SalesNetAmt,0)) as SalesNetAmt, sum(isNull(ps.SalesRetailAmt,0)) as SalesRetailAmt
+LEFT JOIN ( SELECT ps.StoreType as StoreType, max(ps.Brand) as Brand, ps.ItemColor as ItemColor, sum(isNull(ps.Qty,0)) as Qty, sum(isNull(ps.AmountLC,0)) as Amount, sum(isNull(ps.ProductCostAmt,0)) as ProductCostAmt, sum(isNull(ps.InwardCostAmt,0)) as InwardCostAmt, sum(isNull(ps.SalesNetAmt,0)) as SalesNetAmt, sum(isNull(ps.SalesRetailAmt,0)) as SalesRetailAmt
 from Cogs_PurchaseSale as ps
 where ps.APDate = @CurrentAPDate
 group by ps.StoreType, ps.ItemColor
